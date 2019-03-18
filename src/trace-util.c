@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include "trace-util.h"
 
-int read_trace (struct trace *t, const char *filename)
+int read_trace (struct trace *t, const char *filename, enum sg_kernel k)
 {
     FILE *fp = fopen(filename, "r");
     assert(fp);
@@ -26,6 +26,10 @@ int read_trace (struct trace *t, const char *filename)
 
             token = strtok(line, " ");
             sscanf(token, "%d", &(tmp.type));
+            if (k == SCATTER && tmp.type != 1) 
+                continue;
+            if (k == GATHER && tmp.type != 0) 
+                continue;
 
             token = strtok(NULL, " ");
             sscanf(token, "%zu", &(tmp.data_type_size));
@@ -57,6 +61,8 @@ int read_trace (struct trace *t, const char *filename)
             have_num_instructions = 1;
         }
     }
+    t->length = instructions_read;
+    t->in = (struct instruction *)realloc(t->in, sizeof(struct instruction) * (t->length));
     fclose(fp);
 
 }

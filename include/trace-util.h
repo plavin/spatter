@@ -2,6 +2,7 @@
 #define TRACE_UTIL_H
 
 #include "sgtype.h"
+#include "parse-args.h"
 
 struct instruction {
     int type;
@@ -18,7 +19,7 @@ struct trace {
     size_t length;
 };
 
-int read_trace(struct trace *t, const char *filename);
+int read_trace(struct trace *t, const char *filename, enum sg_kernel k);
 
 int print_trace(struct trace t);
 

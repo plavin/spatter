@@ -151,7 +151,7 @@ int main(int argc, char **argv)
     parse_args(argc, argv);
 
     if (config_flag) {
-        read_trace(&tr, config_file);
+        read_trace(&tr, config_file, kernel);
         reweight_trace(tr);
     };
 
