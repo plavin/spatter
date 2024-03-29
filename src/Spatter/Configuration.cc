@@ -492,7 +492,7 @@ Configuration<Spatter::OpenMP>::Configuration(const size_t id,
           pattern_scatter, delta, delta_gather, delta_scatter, seed, wrap,
           count, nthreads, nruns, aggregate, atomic, compress, verbosity) {
   ConfigurationBase::setup();
-};
+}
 
 int Configuration<Spatter::OpenMP>::run(bool timed) {
   omp_set_num_threads(omp_threads);
