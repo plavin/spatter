@@ -28,11 +28,11 @@ class JSONParser {
 public:
   JSONParser(std::string filename, const std::string backend,
       const bool aggregate, const bool atomic, const bool compress,
-      const unsigned long verbosity, const std::string name = "",
+      const unsigned long verbosity, const int nthreads, const std::string name = "",
       const std::string kernel = "gather", const size_t delta = 8,
       const size_t delta_gather = 8, const size_t delta_scatter = 8,
       const int seed = -1, const size_t wrap = 1, const size_t count = 1024,
-      const int nthreads = 1, const unsigned long nruns = 10);
+      const unsigned long nruns = 10);
 
   size_t size();
 
