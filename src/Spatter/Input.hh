@@ -216,7 +216,7 @@ size_t remap_pattern(aligned_vector<size_t> &pattern, const size_t boundary) {
 }
 
 int parse_input(const int argc, char **argv, ClArgs &cl) {
-  cl.backend = "serial";
+  cl.backend = "";
   cl.aggregate = false;
   cl.atomic = false;
   cl.compress = false;
@@ -444,6 +444,18 @@ int parse_input(const int argc, char **argv, ClArgs &cl) {
       usage(argv[0]);
       return -1;
     }
+  }
+
+  // Set default backend if one was not specified
+  if (backend.compare("") == 0) {
+    backend = "serial";
+    // Assume only one of USE_CUDA and USE_OPENMP can be true at once
+#ifdef USE_OPENMP
+    backend = "openmp";
+#endif
+#ifdef USE_CUDA
+      backend = "cuda";
+#endif
   }
 
   cl.backend = backend;
