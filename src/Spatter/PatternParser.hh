@@ -22,7 +22,7 @@ int generate_pattern(std::string type,
     aligned_vector<size_t> &pattern);
 
 int pattern_parser(
-    std::stringstream &pattern_string, aligned_vector<size_t> &pattern);
+    std::stringstream &pattern_string, aligned_vector<size_t> &pattern, size_t &delta);
 
 } // namespace Spatter
 
