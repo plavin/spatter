@@ -332,7 +332,7 @@ int parse_input(const int argc, char **argv, ClArgs &cl) {
 
     case 'g':
       pattern_gather_string << optarg;
-      if (pattern_parser(pattern_gather_string, pattern_gather) != 0)
+      if (pattern_parser(pattern_gather_string, pattern_gather, delta_gather) != 0)
         return -1;
       break;
 
@@ -383,7 +383,7 @@ int parse_input(const int argc, char **argv, ClArgs &cl) {
 
     case 'p':
       pattern_string << optarg;
-      if (pattern_parser(pattern_string, pattern) != 0)
+      if (pattern_parser(pattern_string, pattern, delta) != 0)
         return -1;
       break;
 
@@ -407,7 +407,7 @@ int parse_input(const int argc, char **argv, ClArgs &cl) {
 
     case 'u':
       pattern_scatter_string << optarg;
-      if (pattern_parser(pattern_scatter_string, pattern_scatter) != 0)
+      if (pattern_parser(pattern_scatter_string, pattern_scatter, delta_scatter) != 0)
         return -1;
       break;
 
