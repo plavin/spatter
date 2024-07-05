@@ -124,7 +124,7 @@ int generate_pattern_ms1(std::vector<std::vector<size_t>> generator,
       return -1;
     }
 
-    size_t len;
+    size_t len = 0;
     std::vector<size_t> gap_locations;
     std::vector<size_t> gaps;
     for (size_t i = 0; i < generator.size(); ++i) {

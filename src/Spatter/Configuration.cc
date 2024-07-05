@@ -22,24 +22,24 @@ ConfigurationBase::ConfigurationBase(const size_t id, const std::string name,
       delta(delta), delta_gather(delta_gather), delta_scatter(delta_scatter),
       seed(seed), wrap(wrap), count(count), omp_threads(nthreads), nruns(nruns),
       aggregate(aggregate), atomic(atomic), compress(compress),
-      verbosity(verbosity), time_seconds(0) {
+      verbosity(verbosity), time_seconds(nruns, 0) {
   std::transform(kernel.begin(), kernel.end(), kernel.begin(),
       [](unsigned char c) { return std::tolower(c); });
 }
 
 ConfigurationBase::~ConfigurationBase() = default;
 
-int ConfigurationBase::run(bool timed) {
+int ConfigurationBase::run(bool timed, unsigned long run_id) {
   if (kernel.compare("gather") == 0)
-    gather(timed);
+    gather(timed, run_id);
   else if (kernel.compare("scatter") == 0)
-    scatter(timed);
+    scatter(timed, run_id);
   else if (kernel.compare("sg") == 0)
-    scatter_gather(timed);
+    scatter_gather(timed, run_id);
   else if (kernel.compare("multigather") == 0)
-    multi_gather(timed);
+    multi_gather(timed, run_id);
   else if (kernel.compare("multiscatter") == 0)
-    multi_scatter(timed);
+    multi_scatter(timed, run_id);
   else {
     std::cerr << "Invalid Kernel Type" << std::endl;
     return -1;
@@ -55,7 +55,7 @@ void ConfigurationBase::report() {
     total_bytes_moved = nruns * pattern.size() * count * sizeof(size_t);
 
   if (kernel.compare("sg") == 0)
-    total_bytes_moved = nruns * pattern_gather.size() * count * sizeof(size_t);
+    total_bytes_moved = nruns * (pattern_scatter.size() + pattern_gather.size()) * count * sizeof(size_t);
 
   if (kernel.compare("multiscatter") == 0)
     total_bytes_moved = nruns * pattern_scatter.size() * count * sizeof(size_t);
@@ -66,10 +66,6 @@ void ConfigurationBase::report() {
   unsigned long long bytes_per_run =
       static_cast<unsigned long long>(total_bytes_moved) /
       static_cast<unsigned long long>(nruns);
-
-  double average_time_per_run = time_seconds / static_cast<double>(nruns);
-  double average_bandwidth =
-      static_cast<double>(bytes_per_run) / average_time_per_run / 1000000.0;
 
 #ifdef USE_MPI
   int numpes = 0;
@@ -82,19 +78,37 @@ void ConfigurationBase::report() {
       vector_bytes_per_run.data(), 1, MPI_UNSIGNED_LONG_LONG, 0,
       MPI_COMM_WORLD);
 
-  std::vector<double> vector_average_time_per_run(numpes, 0.0);
-  MPI_Gather(&average_time_per_run, 1, MPI_DOUBLE,
-      vector_average_time_per_run.data(), 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  assert(nruns == time_seconds.size());
+  std::vector<double> total_time_seconds(nruns, 0.0);
+  MPI_Allreduce(time_seconds.data(), total_time_seconds.data(),
+      static_cast<int>(nruns), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 
-  std::vector<double> vector_average_bandwidth(numpes, 0.0);
-  MPI_Gather(&average_bandwidth, 1, MPI_DOUBLE, vector_average_bandwidth.data(),
-      1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  long int index = std::distance(total_time_seconds.begin(),
+      std::min_element(total_time_seconds.begin(), total_time_seconds.end()));
+  assert(index >= 0);
+  size_t min_index = static_cast<size_t>(index);
+
+  double mpi_minimum_time = time_seconds[min_index];
+  std::vector<double> vector_minimum_time(numpes, 0.0);
+  MPI_Gather(&mpi_minimum_time, 1, MPI_DOUBLE, vector_minimum_time.data(), 1,
+      MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  double mpi_maximum_bandwidth =
+      static_cast<double>(bytes_per_run) / mpi_minimum_time / 1000000.0;
+  std::vector<double> vector_maximum_bandwidth(numpes, 0.0);
+  MPI_Gather(&mpi_maximum_bandwidth, 1, MPI_DOUBLE,
+      vector_maximum_bandwidth.data(), 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   if (rank == 0)
-    print_mpi(vector_bytes_per_run, vector_average_time_per_run,
-        vector_average_bandwidth);
+    print_mpi(
+        vector_bytes_per_run, vector_minimum_time, vector_maximum_bandwidth);
 #else
-  print_no_mpi(bytes_per_run, average_time_per_run, average_bandwidth);
+  double minimum_time =
+      *std::min_element(time_seconds.begin(), time_seconds.end());
+  double maximum_bandwidth =
+      static_cast<double>(bytes_per_run) / minimum_time / 1000000.0;
+
+  print_no_mpi(bytes_per_run, minimum_time, maximum_bandwidth);
 #endif
 }
 
@@ -197,11 +211,6 @@ void ConfigurationBase::setup() {
         *(std::max_element(std::begin(pattern), std::end(pattern)));
     const size_t dense_size = pattern.size() * wrap;
     const size_t sparse_size = max_pattern_val + delta * (count - 1) + 1;
-    std::cout << "---\n";
-    std::cout << "sparse_size: " << sparse_size << std::endl;
-    std::cout << "max_pattern_val: " << max_pattern_val << std::endl;
-    std::cout << "delta: " << delta << std::endl;
-    std::cout << "count: " << count << std::endl;
 
     dense.resize(dense_size);
 
@@ -271,19 +280,18 @@ void ConfigurationBase::setup() {
   }
 }
 
-void ConfigurationBase::print_no_mpi(size_t bytes_per_run,
-    double average_time_per_run, double average_bandwidth) {
+void ConfigurationBase::print_no_mpi(
+    size_t bytes_per_run, double minimum_time, double maximum_bandwidth) {
   std::cout << std::setw(15) << std::left << id << std::setw(15) << std::left
-            << bytes_per_run << std::setw(15) << std::left
-            << average_time_per_run << std::setw(15) << std::left
-            << average_bandwidth << std::endl;
+            << bytes_per_run << std::setw(15) << std::left << minimum_time
+            << std::setw(15) << std::left << maximum_bandwidth << std::endl;
 }
 
 #ifdef USE_MPI
 void ConfigurationBase::print_mpi(
     std::vector<unsigned long long> &vector_bytes_per_run,
-    std::vector<double> &vector_time_per_run,
-    std::vector<double> &vector_average_bandwidth) {
+    std::vector<double> &vector_minimum_time,
+    std::vector<double> &vector_maximum_bandwidth) {
 
   unsigned long long total_bytes = std::accumulate(vector_bytes_per_run.begin(),
       vector_bytes_per_run.end(),
@@ -291,39 +299,39 @@ void ConfigurationBase::print_mpi(
   double average_bytes_per_rank = static_cast<double>(total_bytes) /
       static_cast<double>(vector_bytes_per_run.size());
 
-  double total_time = std::accumulate(vector_time_per_run.begin(),
-      vector_time_per_run.end(),
-      std::remove_reference_t<decltype(vector_time_per_run)>::value_type(0));
-  double average_time_per_rank =
-      total_time / static_cast<double>(vector_time_per_run.size());
+  double total_minimum_time = std::accumulate(vector_minimum_time.begin(),
+      vector_minimum_time.end(),
+      std::remove_reference_t<decltype(vector_minimum_time)>::value_type(0));
+  double average_minimum_time_per_rank =
+      total_minimum_time / static_cast<double>(vector_minimum_time.size());
 
-  double total_average_bandwidth = std::accumulate(
-      vector_average_bandwidth.begin(), vector_average_bandwidth.end(),
-      std::remove_reference_t<decltype(vector_average_bandwidth)>::value_type(
+  double total_maximum_bandwidth = std::accumulate(
+      vector_maximum_bandwidth.begin(), vector_maximum_bandwidth.end(),
+      std::remove_reference_t<decltype(vector_maximum_bandwidth)>::value_type(
           0));
-  double average_bandwidth_per_rank = total_average_bandwidth /
-      static_cast<double>(vector_average_bandwidth.size());
+  double average_maximum_bandwidth_per_rank = total_maximum_bandwidth /
+      static_cast<double>(vector_maximum_bandwidth.size());
 
   std::cout << std::setw(15) << std::left << id << std::setw(30) << std::left
             << average_bytes_per_rank << std::setw(30) << std::left
             << total_bytes << std::setw(30) << std::left
-            << average_time_per_rank << std::setw(30) << std::left
-            << average_bandwidth_per_rank << std::setw(30) << std::left
-            << total_average_bandwidth << std::endl;
+            << average_minimum_time_per_rank << std::setw(30) << std::left
+            << average_maximum_bandwidth_per_rank << std::setw(30) << std::left
+            << total_maximum_bandwidth << std::endl;
 
   if (verbosity >= 3) {
-    std::cout << "Bytes per run per rank\n";
+    std::cout << "\nBytes per rank\n";
     for (unsigned long long bytes : vector_bytes_per_run)
       std::cout << bytes << ' ';
-    std::cout << "\n\n";
+    std::cout << '\n';
 
-    std::cout << "Average time per run per rank(s)\n";
-    for (double t : vector_time_per_run)
+    std::cout << "Minimum time per rank(s)\n";
+    for (double t : vector_minimum_time)
       std::cout << t << ' ';
-    std::cout << "\n\n";
+    std::cout << '\n';
 
-    std::cout << "Average bandwidth per run per rank(MB/s)\n";
-    for (double bw : vector_average_bandwidth)
+    std::cout << "Maximum bandwidth per rank(MB/s)\n";
+    for (double bw : vector_maximum_bandwidth)
       std::cout << bw << ' ';
     std::cout << std::endl;
   }
@@ -335,12 +343,12 @@ std::ostream &operator<<(std::ostream &out, const ConfigurationBase &config) {
 
   config_output << "{";
 
-  config_output << "'id: " << config.id << ", ";
+  config_output << "'id': " << config.id << ", ";
 
   if (config.name.compare("") != 0)
-    config_output << "'name': " << config.name << ", ";
+    config_output << "'name': '" << config.name << "', ";
 
-  config_output << "'kernel': " << config.kernel << ", ";
+  config_output << "'kernel': '" << config.kernel << "', ";
 
   config_output << "'pattern': [";
   std::copy(std::begin(config.pattern), std::end(config.pattern),
@@ -358,7 +366,7 @@ std::ostream &operator<<(std::ostream &out, const ConfigurationBase &config) {
       std::experimental::make_ostream_joiner(config_output, ", "));
   config_output << "], ";
 
-  config_output << "'delta': " << config.delta << ",";
+  config_output << "'delta': " << config.delta << ", ";
   config_output << "'delta-gather': " << config.delta_gather << ", ";
   config_output << "'delta-scatter': " << config.delta_scatter << ", ";
 
@@ -392,7 +400,7 @@ Configuration<Spatter::Serial>::Configuration(const size_t id,
   ConfigurationBase::setup();
 }
 
-void Configuration<Spatter::Serial>::gather(bool timed) {
+void Configuration<Spatter::Serial>::gather(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
 
 #ifdef USE_MPI
@@ -408,11 +416,12 @@ void Configuration<Spatter::Serial>::gather(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::Serial>::scatter(bool timed) {
+void Configuration<Spatter::Serial>::scatter(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
 
 #ifdef USE_MPI
@@ -428,11 +437,13 @@ void Configuration<Spatter::Serial>::scatter(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::Serial>::scatter_gather(bool timed) {
+void Configuration<Spatter::Serial>::scatter_gather(
+    bool timed, unsigned long run_id) {
   assert(pattern_scatter.size() == pattern_gather.size());
   size_t pattern_length = pattern_scatter.size();
 
@@ -450,11 +461,13 @@ void Configuration<Spatter::Serial>::scatter_gather(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::Serial>::multi_gather(bool timed) {
+void Configuration<Spatter::Serial>::multi_gather(
+    bool timed, unsigned long run_id) {
   size_t pattern_length = pattern_gather.size();
 
 #ifdef USE_MPI
@@ -471,11 +484,13 @@ void Configuration<Spatter::Serial>::multi_gather(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::Serial>::multi_scatter(bool timed) {
+void Configuration<Spatter::Serial>::multi_scatter(
+    bool timed, unsigned long run_id) {
   size_t pattern_length = pattern_scatter.size();
 
 #ifdef USE_MPI
@@ -492,7 +507,8 @@ void Configuration<Spatter::Serial>::multi_scatter(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
@@ -512,21 +528,13 @@ Configuration<Spatter::OpenMP>::Configuration(const size_t id,
   ConfigurationBase::setup();
 }
 
-int Configuration<Spatter::OpenMP>::run(bool timed) {
+int Configuration<Spatter::OpenMP>::run(bool timed, unsigned long run_id) {
   omp_set_num_threads(omp_threads);
-  return ConfigurationBase::run(timed);
+  return ConfigurationBase::run(timed, run_id);
 }
 
-void Configuration<Spatter::OpenMP>::gather(bool timed) {
+void Configuration<Spatter::OpenMP>::gather(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
-
-  /*
-  std::cout << "pat_len: " << pattern_length << std::endl;
-  std::cout << "delta: " << delta << std::endl;
-  std::cout << "n: " << count << std::endl;
-  */
-  std::cout << "size of source: " << sizeof(double)*sparse.size()/1024/1024 << "MiB" << std::endl;
-  //std::cout << "size of target: " << sizeof(double)*dense_perthread[0].size()/1024/1024 << "MiB" << std::endl;
 
 #ifdef USE_MPI
   MPI_Barrier(MPI_COMM_WORLD);
@@ -535,7 +543,6 @@ void Configuration<Spatter::OpenMP>::gather(bool timed) {
   if (timed)
     timer.start();
 
-  //std::cout << "Wrap: " << wrap << std::endl;
 #pragma omp parallel
   {
     int t = omp_get_thread_num();
@@ -543,30 +550,28 @@ void Configuration<Spatter::OpenMP>::gather(bool timed) {
 #pragma omp for
     for (size_t i = 0; i < count; ++i) {
       double *sl = &sparse[delta*i];
-      double *tl = &(dense_perthread[t][0]);
+      double *tl = &(dense_perthread[t][pattern_length*(i%wrap)]);
 
 #pragma omp simd
       for (size_t j = 0; j < pattern_length; ++j) {
         dense_perthread[t][j] = sparse[pattern[j] + delta * i];
         tl[j] = sl[pattern[j]];
-        //tl[j] = sparse[pattern[j] + delta*i];
       }
     }
   }
 
   assert(dense_perthread[rand()%omp_threads][rand()%pattern_length]!=0);
 
-  if(dense_perthread[rand()%omp_threads][rand()%pattern_length]){
-    //std::cout << "test................\n";
-  }
   std::atomic_thread_fence(std::memory_order_release);
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
+
 }
 
-void Configuration<Spatter::OpenMP>::scatter(bool timed) {
+void Configuration<Spatter::OpenMP>::scatter(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
 
 #ifdef USE_MPI
@@ -576,18 +581,39 @@ void Configuration<Spatter::OpenMP>::scatter(bool timed) {
   if (timed)
     timer.start();
 
+#pragma omp parallel
+  {
+    int t = omp_get_thread_num();
+
+#pragma omp for
+    for (size_t i = 0; i < count; ++i) {
+      double *sl = &sparse[delta*i];
+      //double *tl = &(dense_perthread[t][0]);
+      //double *tl = &dense[pattern_length*i];
+
+#pragma omp simd
+      for (size_t j = 0; j < pattern_length; ++j) {
+        sl[pattern[j]] = dense[j];
+      }
+    }
+  }
+
+  /*
 #pragma omp parallel for simd
   for (size_t i = 0; i < count; ++i)
     for (size_t j = 0; j < pattern_length; ++j)
       sparse[pattern[j] + delta * i] = dense[j + pattern_length * (i % wrap)];
+      */
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::OpenMP>::scatter_gather(bool timed) {
+void Configuration<Spatter::OpenMP>::scatter_gather(
+    bool timed, unsigned long run_id) {
   assert(pattern_scatter.size() == pattern_gather.size());
   size_t pattern_length = pattern_scatter.size();
 
@@ -606,11 +632,13 @@ void Configuration<Spatter::OpenMP>::scatter_gather(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::OpenMP>::multi_gather(bool timed) {
+void Configuration<Spatter::OpenMP>::multi_gather(
+    bool timed, unsigned long run_id) {
   size_t pattern_length = pattern_gather.size();
 
 #ifdef USE_MPI
@@ -628,11 +656,13 @@ void Configuration<Spatter::OpenMP>::multi_gather(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 
-void Configuration<Spatter::OpenMP>::multi_scatter(bool timed) {
+void Configuration<Spatter::OpenMP>::multi_scatter(
+    bool timed, unsigned long run_id) {
   size_t pattern_length = pattern_scatter.size();
 
 #ifdef USE_MPI
@@ -650,7 +680,8 @@ void Configuration<Spatter::OpenMP>::multi_scatter(bool timed) {
 
   if (timed) {
     timer.stop();
-    time_seconds = timer.seconds();
+    time_seconds[run_id] = timer.seconds();
+    timer.clear();
   }
 }
 #endif
@@ -672,36 +703,36 @@ Configuration<Spatter::CUDA>::Configuration(const size_t id,
 }
 
 Configuration<Spatter::CUDA>::~Configuration() {
-  cudaFree(dev_pattern);
-  cudaFree(dev_pattern_gather);
-  cudaFree(dev_pattern_scatter);
+  checkCudaErrors(cudaFree(dev_pattern));
+  checkCudaErrors(cudaFree(dev_pattern_gather));
+  checkCudaErrors(cudaFree(dev_pattern_scatter));
 
-  cudaFree(dev_sparse);
-  cudaFree(dev_sparse_gather);
-  cudaFree(dev_sparse_scatter);
+  checkCudaErrors(cudaFree(dev_sparse));
+  checkCudaErrors(cudaFree(dev_sparse_gather));
+  checkCudaErrors(cudaFree(dev_sparse_scatter));
 
-  cudaFree(dev_dense);
+  checkCudaErrors(cudaFree(dev_dense));
 }
 
-int Configuration<Spatter::CUDA>::run(bool timed) {
-  ConfigurationBase::run(timed);
+int Configuration<Spatter::CUDA>::run(bool timed, unsigned long run_id) {
+  ConfigurationBase::run(timed, run_id);
 
-  cudaMemcpy(sparse.data(), dev_sparse, sizeof(double) * sparse.size(),
-      cudaMemcpyDeviceToHost);
-  cudaMemcpy(sparse_gather.data(), dev_sparse_gather,
-      sizeof(double) * sparse_gather.size(), cudaMemcpyDeviceToHost);
-  cudaMemcpy(sparse_scatter.data(), dev_sparse_scatter,
-      sizeof(double) * sparse_scatter.size(), cudaMemcpyDeviceToHost);
+  checkCudaErrors(cudaMemcpy(sparse.data(), dev_sparse,
+      sizeof(double) * sparse.size(), cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(sparse_gather.data(), dev_sparse_gather,
+      sizeof(double) * sparse_gather.size(), cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(sparse_scatter.data(), dev_sparse_scatter,
+      sizeof(double) * sparse_scatter.size(), cudaMemcpyDeviceToHost));
 
-  cudaMemcpy(dense.data(), dev_dense, sizeof(double) * dense.size(),
-      cudaMemcpyDeviceToHost);
+  checkCudaErrors(cudaMemcpy(dense.data(), dev_dense,
+      sizeof(double) * dense.size(), cudaMemcpyDeviceToHost));
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   return 0;
 }
 
-void Configuration<Spatter::CUDA>::gather(bool timed) {
+void Configuration<Spatter::CUDA>::gather(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
 
 #ifdef USE_MPI
@@ -711,13 +742,13 @@ void Configuration<Spatter::CUDA>::gather(bool timed) {
   float time_ms = cuda_gather_wrapper(
       dev_pattern, dev_sparse, dev_dense, pattern_length, delta, wrap, count);
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   if (timed)
-    time_seconds += ((double)time_ms / 1000.0);
+    time_seconds[run_id] = ((double)time_ms / 1000.0);
 }
 
-void Configuration<Spatter::CUDA>::scatter(bool timed) {
+void Configuration<Spatter::CUDA>::scatter(bool timed, unsigned long run_id) {
   size_t pattern_length = pattern.size();
 
 #ifdef USE_MPI
@@ -733,13 +764,14 @@ void Configuration<Spatter::CUDA>::scatter(bool timed) {
     time_ms = cuda_scatter_wrapper(
         dev_pattern, dev_sparse, dev_dense, pattern_length, delta, wrap, count);
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   if (timed)
-    time_seconds += ((double)time_ms / 1000.0);
+    time_seconds[run_id] = ((double)time_ms / 1000.0);
 }
 
-void Configuration<Spatter::CUDA>::scatter_gather(bool timed) {
+void Configuration<Spatter::CUDA>::scatter_gather(
+    bool timed, unsigned long run_id) {
   assert(pattern_scatter.size() == pattern_gather.size());
   int pattern_length = static_cast<int>(pattern_scatter.size());
 
@@ -758,13 +790,14 @@ void Configuration<Spatter::CUDA>::scatter_gather(bool timed) {
         dev_sparse_scatter, dev_pattern_gather, dev_sparse_gather,
         pattern_length, delta_scatter, delta_gather, wrap, count);
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   if (timed)
-    time_seconds += ((double)time_ms / 1000.0);
+    time_seconds[run_id] = ((double)time_ms / 1000.0);
 }
 
-void Configuration<Spatter::CUDA>::multi_gather(bool timed) {
+void Configuration<Spatter::CUDA>::multi_gather(
+    bool timed, unsigned long run_id) {
   int pattern_length = static_cast<int>(pattern_gather.size());
 
 #ifdef USE_MPI
@@ -774,13 +807,14 @@ void Configuration<Spatter::CUDA>::multi_gather(bool timed) {
   float time_ms = cuda_multi_gather_wrapper(dev_pattern, dev_pattern_gather,
       dev_sparse, dev_dense, pattern_length, delta, wrap, count);
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   if (timed)
-    time_seconds += ((double)time_ms / 1000.0);
+    time_seconds[run_id] = ((double)time_ms / 1000.0);
 }
 
-void Configuration<Spatter::CUDA>::multi_scatter(bool timed) {
+void Configuration<Spatter::CUDA>::multi_scatter(
+    bool timed, unsigned long run_id) {
   int pattern_length = static_cast<int>(pattern_scatter.size());
 
 #ifdef USE_MPI
@@ -797,45 +831,48 @@ void Configuration<Spatter::CUDA>::multi_scatter(bool timed) {
     time_ms = cuda_multi_scatter_wrapper(dev_pattern, dev_pattern_scatter,
         dev_sparse, dev_dense, pattern_length, delta, wrap, count);
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 
   if (timed)
-    time_seconds += ((double)time_ms / 1000.0);
+    time_seconds[run_id] = ((double)time_ms / 1000.0);
 }
 
 void Configuration<Spatter::CUDA>::setup() {
   ConfigurationBase::setup();
 
-  cudaMalloc((void **)&dev_pattern, sizeof(size_t) * pattern.size());
-  cudaMalloc(
-      (void **)&dev_pattern_gather, sizeof(size_t) * pattern_gather.size());
-  cudaMalloc(
-      (void **)&dev_pattern_scatter, sizeof(size_t) * pattern_scatter.size());
+  checkCudaErrors(
+      cudaMalloc((void **)&dev_pattern, sizeof(size_t) * pattern.size()));
+  checkCudaErrors(cudaMalloc(
+      (void **)&dev_pattern_gather, sizeof(size_t) * pattern_gather.size()));
+  checkCudaErrors(cudaMalloc(
+      (void **)&dev_pattern_scatter, sizeof(size_t) * pattern_scatter.size()));
 
-  cudaMalloc((void **)&dev_sparse, sizeof(double) * sparse.size());
-  cudaMalloc(
-      (void **)&dev_sparse_gather, sizeof(double) * sparse_gather.size());
-  cudaMalloc(
-      (void **)&dev_sparse_scatter, sizeof(double) * sparse_scatter.size());
-  cudaMalloc((void **)&dev_dense, sizeof(double) * dense.size());
+  checkCudaErrors(
+      cudaMalloc((void **)&dev_sparse, sizeof(double) * sparse.size()));
+  checkCudaErrors(cudaMalloc(
+      (void **)&dev_sparse_gather, sizeof(double) * sparse_gather.size()));
+  checkCudaErrors(cudaMalloc(
+      (void **)&dev_sparse_scatter, sizeof(double) * sparse_scatter.size()));
+  checkCudaErrors(
+      cudaMalloc((void **)&dev_dense, sizeof(double) * dense.size()));
 
-  cudaMemcpy(dev_pattern, pattern.data(), sizeof(size_t) * pattern.size(),
-      cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_pattern_gather, pattern_gather.data(),
-      sizeof(size_t) * pattern_gather.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_pattern_scatter, pattern_scatter.data(),
-      sizeof(size_t) * pattern_scatter.size(), cudaMemcpyHostToDevice);
+  checkCudaErrors(cudaMemcpy(dev_pattern, pattern.data(),
+      sizeof(size_t) * pattern.size(), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(dev_pattern_gather, pattern_gather.data(),
+      sizeof(size_t) * pattern_gather.size(), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(dev_pattern_scatter, pattern_scatter.data(),
+      sizeof(size_t) * pattern_scatter.size(), cudaMemcpyHostToDevice));
 
-  cudaMemcpy(dev_sparse, sparse.data(), sizeof(double) * sparse.size(),
-      cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_sparse_gather, sparse_gather.data(),
-      sizeof(double) * sparse_gather.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_sparse_scatter, sparse_scatter.data(),
-      sizeof(double) * sparse_scatter.size(), cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_dense, dense.data(), sizeof(double) * dense.size(),
-      cudaMemcpyHostToDevice);
+  checkCudaErrors(cudaMemcpy(dev_sparse, sparse.data(),
+      sizeof(double) * sparse.size(), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(dev_sparse_gather, sparse_gather.data(),
+      sizeof(double) * sparse_gather.size(), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(dev_sparse_scatter, sparse_scatter.data(),
+      sizeof(double) * sparse_scatter.size(), cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(dev_dense, dense.data(),
+      sizeof(double) * dense.size(), cudaMemcpyHostToDevice));
 
-  cudaDeviceSynchronize();
+  checkCudaErrors(cudaDeviceSynchronize());
 }
 #endif
 

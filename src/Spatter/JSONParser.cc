@@ -31,28 +31,37 @@ JSONParser::JSONParser(std::string filename, const std::string backend,
   size_ = data_.size();
 
   for (const auto &[key, v] : data_.items()) {
-    assert(v.contains("pattern"));
-
     if (!v.contains("name"))
       v["name"] = default_name_;
 
-    if (!v.contains("kernel"))
+    if (!v.contains("kernel")) {
       v["kernel"] = default_kernel_;
-    else {
+
+      assert(v.contains("pattern"));
+    } else {
       std::string kernel = v["kernel"];
       std::transform(kernel.begin(), kernel.end(), kernel.begin(),
           [](unsigned char c) { return std::tolower(c); });
 
+      // The kernel may be specified as 'GS' instead of 'sg'
+      kernel = (kernel.compare("gs") == 0) ? "sg" : kernel;
       v["kernel"] = kernel;
+
+      if (kernel.compare("sg") == 0) {
+        // This kernel does not require --pattern to be specified
+        assert(v.contains("pattern-gather") && v.contains("pattern-scatter"));
+      } else {
+        assert(v.contains("pattern"));
+      }
     }
 
-    if (!v.contains("delta"))
+    if (!v.contains("delta") || (v["delta"] <= -1))
       v["delta"] = default_delta_;
 
-    if (!v.contains("delta-gather"))
+    if (!v.contains("delta-gather") || (v["delta-gather"] <= -1))
       v["delta-gather"] = default_delta_gather_;
 
-    if (!v.contains("delta-scatter"))
+    if (!v.contains("delta-scatter") || (v["delta-scatter"] <= -1))
       v["delta-scatter"] = default_delta_scatter_;
 
     if (!v.contains("seed"))

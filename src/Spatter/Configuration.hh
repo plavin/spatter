@@ -5,6 +5,16 @@
 #ifndef SPATTER_CONFIGURATION_HH
 #define SPATTER_CONFIGURATION_HH
 
+#include <algorithm>
+#include <cctype>
+#include <experimental/iterator>
+#include <iomanip>
+#include <iostream>
+#include <ostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
 #ifdef USE_MPI
 #include "mpi.h"
 #endif
@@ -17,17 +27,20 @@
 #include "CudaBackend.hh"
 #include <cuda.h>
 #include <cuda_runtime_api.h>
-#endif
 
-#include <algorithm>
-#include <cctype>
-#include <experimental/iterator>
-#include <iomanip>
-#include <iostream>
-#include <ostream>
-#include <sstream>
-#include <string>
-#include <vector>
+// stackoverflow.com/questions/14038589/what-is-the-canonical-way-to-check-for-errors-using-the-cuda-runtime-api
+#define checkCudaErrors(ans) \
+  { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(
+    cudaError_t code, const char *file, int line, bool abort = true) {
+  if (code != cudaSuccess) {
+    std::cerr << "checkCudaErrors: " << cudaGetErrorString(code) << " " << file
+              << " " << line << std::endl;
+    if (abort)
+      exit(code);
+  }
+}
+#endif
 
 #include "AlignedAllocator.hh"
 #include "SpatterTypes.hh"
@@ -52,26 +65,26 @@ public:
 
   virtual ~ConfigurationBase();
 
-  virtual int run(bool timed);
+  virtual int run(bool timed, unsigned long run_id);
 
-  virtual void gather(bool timed) = 0;
-  virtual void scatter(bool timed) = 0;
-  virtual void scatter_gather(bool timed) = 0;
-  virtual void multi_gather(bool timed) = 0;
-  virtual void multi_scatter(bool timed) = 0;
+  virtual void gather(bool timed, unsigned long run_id) = 0;
+  virtual void scatter(bool timed, unsigned long run_id) = 0;
+  virtual void scatter_gather(bool timed, unsigned long run_id) = 0;
+  virtual void multi_gather(bool timed, unsigned long run_id) = 0;
+  virtual void multi_scatter(bool timed, unsigned long run_id) = 0;
 
   virtual void report();
 
   virtual void setup();
 
 private:
-  void print_no_mpi(size_t bytes_per_run, double average_time_per_run,
-      double average_bandwidth);
+  void print_no_mpi(
+      size_t bytes_per_run, double minimum_time, double maximum_bandwidth);
 
 #ifdef USE_MPI
   void print_mpi(std::vector<unsigned long long> &vector_bytes_per_run,
-      std::vector<double> &vector_average_time_per_run,
-      std::vector<double> &vector_average_bandwidth);
+      std::vector<double> &vector_minimum_time,
+      std::vector<double> &vector_maximum_bandwidth);
 #endif
 
 public:
@@ -121,7 +134,7 @@ public:
   const unsigned long verbosity;
 
   Spatter::Timer timer;
-  double time_seconds;
+  std::vector<double> time_seconds;
 };
 
 std::ostream &operator<<(std::ostream &out, const ConfigurationBase &config);
@@ -138,11 +151,11 @@ public:
       const size_t wrap, const size_t count, const unsigned long nruns,
       const bool aggregate, const bool compress, const unsigned long verbosity);
 
-  void gather(bool timed);
-  void scatter(bool timed);
-  void scatter_gather(bool timed);
-  void multi_gather(bool timed);
-  void multi_scatter(bool timed);
+  void gather(bool timed, unsigned long run_id);
+  void scatter(bool timed, unsigned long run_id);
+  void scatter_gather(bool timed, unsigned long run_id);
+  void multi_gather(bool timed, unsigned long run_id);
+  void multi_scatter(bool timed, unsigned long run_id);
 };
 
 #ifdef USE_OPENMP
@@ -157,13 +170,13 @@ public:
       const unsigned long nruns, const bool aggregate, const bool atomic,
       const bool compress, const unsigned long verbosity);
 
-  int run(bool timed);
+  int run(bool timed, unsigned long run_id);
 
-  void gather(bool timed);
-  void scatter(bool timed);
-  void scatter_gather(bool timed);
-  void multi_gather(bool timed);
-  void multi_scatter(bool timed);
+  void gather(bool timed, unsigned long run_id);
+  void scatter(bool timed, unsigned long run_id);
+  void scatter_gather(bool timed, unsigned long run_id);
+  void multi_gather(bool timed, unsigned long run_id);
+  void multi_scatter(bool timed, unsigned long run_id);
 };
 #endif
 
@@ -181,12 +194,12 @@ public:
 
   ~Configuration();
 
-  int run(bool timed);
-  void gather(bool timed);
-  void scatter(bool timed);
-  void scatter_gather(bool timed);
-  void multi_gather(bool timed);
-  void multi_scatter(bool timed);
+  int run(bool timed, unsigned long run_id);
+  void gather(bool timed, unsigned long run_id);
+  void scatter(bool timed, unsigned long run_id);
+  void scatter_gather(bool timed, unsigned long run_id);
+  void multi_gather(bool timed, unsigned long run_id);
+  void multi_scatter(bool timed, unsigned long run_id);
   void setup();
 
 public:

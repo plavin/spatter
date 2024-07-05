@@ -31,10 +31,10 @@ void print_header(Spatter::ClArgs &cl) {
   int gpu_id = 0;
   if (cl.backend.compare("cuda") == 0) {
     int num_devices = 0;
-    cudaGetDeviceCount(&num_devices);
+    checkCudaErrors(cudaGetDeviceCount(&num_devices));
 
     struct cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, gpu_id);
+    checkCudaErrors(cudaGetDeviceProperties(&prop, gpu_id));
 
     std::cout << "Number of Devices: " << num_devices << std::endl;
     std::cout << "Device Name: " << prop.name << std::endl;
@@ -80,12 +80,15 @@ int main(int argc, char **argv) {
   for (std::unique_ptr<Spatter::ConfigurationBase> const &config : cl.configs) {
     for (unsigned long run = 0; run < (config->nruns + warmup_runs); ++run) {
 
-      if (run >= warmup_runs)
+      unsigned long run_id = 0;
+      if (run >= warmup_runs) {
         timed = 1;
-      else
+        run_id = run - warmup_runs;
+      } else {
         timed = 0;
+      }
 
-      if (config->run(timed) != 0)
+      if (config->run(timed, run_id) != 0)
         return -1;
     }
   }
