@@ -15,6 +15,8 @@
 #include <omp.h>
 #endif
 
+#include "ConfigurationSerial.hh"
+#include "ConfigurationOpenMP.hh"
 #include "Configuration.hh"
 #include "PatternParser.hh"
 
