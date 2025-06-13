@@ -10,6 +10,7 @@ set(SPATTER_INCLUDE_FILES
     ${CUDA_INCLUDE_FILES}
     ConfigurationBase.hh
     ConfigurationSerial.hh
+    ConfigurationOpenMP.hh
     Configuration.hh
     Input.hh
     JSONParser.hh
@@ -23,6 +24,7 @@ add_library(Spatter STATIC
     ${SPATTER_INCLUDE_FILES}
     ConfigurationBase.cc
     ConfigurationSerial.cc
+    ConfigurationOpenMP.cc
     Configuration.cc
     JSONParser.cc
     PatternParser.cc
@@ -33,6 +35,7 @@ add_library(Spatter_shared SHARED
     ${SPATTER_INCLUDE_FILES}
     ConfigurationBase.cc
     ConfigurationSerial.cc
+    ConfigurationOpenMP.cc
     Configuration.cc
     JSONParser.cc
     PatternParser.cc
