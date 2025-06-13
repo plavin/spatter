@@ -8,6 +8,7 @@ endif()
 
 set(SPATTER_INCLUDE_FILES
     ${CUDA_INCLUDE_FILES}
+    ConfigurationBase.hh
     Configuration.hh
     Input.hh
     JSONParser.hh

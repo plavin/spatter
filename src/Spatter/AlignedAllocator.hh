@@ -1,3 +1,5 @@
+#ifndef ALIGNED_ALLOCATOR_HH
+#define ALIGNED_ALLOCATOR_HH
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -121,3 +123,4 @@ public:
 private:
   aligned_allocator &operator=(const aligned_allocator &);
 };
+#endif
