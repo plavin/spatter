@@ -20,6 +20,7 @@ set(SPATTER_INCLUDE_FILES
 
 add_library(Spatter STATIC
     ${SPATTER_INCLUDE_FILES}
+    ConfigurationBase.cc
     Configuration.cc
     JSONParser.cc
     PatternParser.cc
@@ -28,6 +29,7 @@ add_library(Spatter STATIC
 
 add_library(Spatter_shared SHARED
     ${SPATTER_INCLUDE_FILES}
+    ConfigurationBase.cc
     Configuration.cc
     JSONParser.cc
     PatternParser.cc
