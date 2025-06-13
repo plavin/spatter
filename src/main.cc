@@ -2,7 +2,7 @@
 #include "mpi.h"
 #endif
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 #define xstr(s) str(s)

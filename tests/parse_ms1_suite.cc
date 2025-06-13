@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 int ms1_test(size_t pattern_length, int gap_location_count,

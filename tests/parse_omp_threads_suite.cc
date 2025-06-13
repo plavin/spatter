@@ -6,7 +6,7 @@
 #include <omp.h>
 #endif
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 int omp_thread_test(int thread_count, int argc, char **argv) {

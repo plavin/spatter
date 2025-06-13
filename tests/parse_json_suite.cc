@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 int json_test(size_t run_count, std::string kernel,

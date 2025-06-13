@@ -12,7 +12,6 @@ set(SPATTER_INCLUDE_FILES
     ConfigurationSerial.hh
     ConfigurationOpenMP.hh
     ConfigurationCUDA.hh
-    Configuration.hh
     Input.hh
     JSONParser.hh
     PatternParser.hh
@@ -27,7 +26,6 @@ add_library(Spatter STATIC
     ConfigurationSerial.cc
     ConfigurationOpenMP.cc
     ConfigurationCUDA.cc
-    Configuration.cc
     JSONParser.cc
     PatternParser.cc
     Timer.cc
@@ -39,7 +37,6 @@ add_library(Spatter_shared SHARED
     ConfigurationSerial.cc
     ConfigurationOpenMP.cc
     ConfigurationCUDA.cc
-    Configuration.cc
     JSONParser.cc
     PatternParser.cc
     Timer.cc

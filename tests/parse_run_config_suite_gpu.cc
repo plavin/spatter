@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 int parse_check(int argc_, char **argv_, Spatter::ClArgs &cl) {

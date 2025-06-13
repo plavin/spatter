@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "Configuration.hh"
+#include "ConfigurationBase.hh"
 #include "SpatterTypes.hh"
 
 #define CUSTOM_PATTERN "(^[0-9]+)(,[0-9]+)*$"

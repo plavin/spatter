@@ -3,7 +3,6 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-#include "Configuration.hh"
 
 __global__ void cuda_gather(const size_t *pattern, const double *sparse,
     double *dense, const size_t pattern_length, const size_t delta,

@@ -20,7 +20,6 @@
 #include <omp.h>
 #endif
 
-#include "Configuration.hh"
 #include "JSONParser.hh"
 #include "PatternParser.hh"
 #include "SpatterTypes.hh"

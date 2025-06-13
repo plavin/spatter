@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 
-#include "Spatter/Configuration.hh"
+#include "Spatter/ConfigurationBase.hh"
 #include "Spatter/Input.hh"
 
 int multilevel_test(int multigather) {
