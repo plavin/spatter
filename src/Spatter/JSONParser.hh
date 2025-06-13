@@ -17,6 +17,7 @@
 
 #include "ConfigurationSerial.hh"
 #include "ConfigurationOpenMP.hh"
+#include "ConfigurationCUDA.hh"
 #include "Configuration.hh"
 #include "PatternParser.hh"
 
